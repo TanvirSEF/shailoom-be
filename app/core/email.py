@@ -8,7 +8,6 @@ resend.api_key = settings.resend_api_key
 # --- Configurable Defaults ---
 # This is the sender email. Typically, you need to verify a domain in Resend to use an email other than 'onboarding@resend.dev'
 SENDER_EMAIL = "onboarding@resend.dev"
-ADMIN_EMAIL = "admin@shailoom.com" # Replace with your actual admin receiving email
 
 
 def send_order_confirmation(user_email: str, order_details: dict):
@@ -74,7 +73,7 @@ def send_admin_new_order_alert(order_details: dict):
     try:
         r = resend.Emails.send({
             "from": SENDER_EMAIL,
-            "to": ADMIN_EMAIL,
+            "to": settings.admin_email,
             "subject": f"🔥 New Order Received: {tracking_id}",
             "html": html_content
         })
