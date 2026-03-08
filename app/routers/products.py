@@ -1,8 +1,8 @@
 import json
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
 from app.core.database import product_collection
 from app.core.s3 import upload_image_to_r2
@@ -19,8 +19,8 @@ async def create_product(
     price: float = Form(...),
     category: str = Form(...),
     stock: int = Form(...),
-    sizes: str = Form(..., example='["S", "M", "L", "XL"]'),
-    colors: str = Form(..., example='["Red", "Blue"]'),
+    sizes: str = Form(..., examples=['["S", "M", "L", "XL"]']),
+    colors: str = Form(..., examples=['["Red", "Blue"]']),
     image_files: List[UploadFile] = File(...),
     admin_user: str = Depends(get_current_admin),
 ):
@@ -71,10 +71,49 @@ async def create_product(
     }
 
 
-@router.get("", response_model=List[ProductModel])
-async def get_all_products():
+@router.get("")
+async def get_products(
+    category: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    size: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(12, ge=1, le=50),  # Standard e-commerce grid size
+):
     """
-    **[Public]** Retrieve all active products from the store.
+    **[Public]** Advanced product discovery with:
+    - **Filtering**: `category`, `size`, `min_price`, `max_price`
+    - **Search**: Case-insensitive text match on `name` and `description`
+    - **Pagination**: `page` and `limit` (default: 12 per page)
+
+    Only returns active products (`is_active: true`).
     """
-    products = await product_collection.find().to_list(100)
+    # 1. Build dynamic MongoDB filter
+    query: dict = {"is_active": True}
+
+    if category:
+        query["category"] = category
+
+    if size:
+        query["sizes"] = size  # Matches if value exists in the array
+
+    if min_price is not None or max_price is not None:
+        query["price"] = {}
+        if min_price is not None:
+            query["price"]["$gte"] = min_price
+        if max_price is not None:
+            query["price"]["$lte"] = max_price
+
+    if search:
+        # Case-insensitive regex search across name and description
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"description": {"$regex": search, "$options": "i"}},
+        ]
+
+    # 2. Execute with pagination
+    skip = (page - 1) * limit
+    products = await product_collection.find(query).skip(skip).limit(limit).to_list(limit)
+
     return products
