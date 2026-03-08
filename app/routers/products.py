@@ -36,7 +36,7 @@ async def create_product(
     uploaded_urls = []
     for file in image_files:
         content = await file.read()
-        url = await upload_image_to_r2(content, file.filename, file.content_type)
+        url = await upload_image_to_r2(content, file.filename)
         uploaded_urls.append(url)
 
     # 2. Parse JSON string fields
@@ -165,7 +165,7 @@ async def submit_review(
     image_url = None
     if image_file:
         content = await image_file.read()
-        image_url = await upload_image_to_r2(content, image_file.filename, image_file.content_type)
+        image_url = await upload_image_to_r2(content, image_file.filename)
 
     # 4. Save the review
     review_doc = {

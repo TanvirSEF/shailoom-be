@@ -138,7 +138,7 @@ async def get_all_users():
 @router.patch("/users/{email}/role")
 async def update_user_role(
     email: str,
-    new_role: str = Query(..., regex="^(customer|admin)$"),
+    new_role: str = Query(..., pattern="^(customer|admin)$"),
     current_admin: str = Depends(get_current_admin)
 ):
     """

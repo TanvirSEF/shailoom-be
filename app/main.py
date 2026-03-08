@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
@@ -63,6 +63,47 @@ def create_app() -> FastAPI:
     async def root():
         """Health check endpoint."""
         return {"message": f"{settings.app_name} is operational", "status": "online"}
+        
+    # --- Dynamic SEO Sitemap ---
+    @app.get("/sitemap.xml", tags=["SEO"])
+    async def get_sitemap():
+        """
+        Generates a dynamic XML sitemap of all active products for search engine crawlers.
+        """
+        from app.core.database import product_collection
+        
+        # Base URL of the frontend (could be moved to env vars later)
+        base_url = "https://shailoom.com"
+        
+        # Start XML
+        xml_content = '<?xml version="1.0" encoding="UTF-8"?>\n'
+        xml_content += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        
+        # Add static pages
+        static_pages = ["", "/products", "/about", "/contact"]
+        for page in static_pages:
+            xml_content += f"  <url>\n    <loc>{base_url}{page}</loc>\n    <changefreq>daily</changefreq>\n    <priority>{1.0 if page == '' else 0.8}</priority>\n  </url>\n"
+
+        # Add dynamic product pages
+        cursor = product_collection.find({"is_active": True}, {"_id": 1, "updated_at": 1})
+        products = await cursor.to_list(length=None)
+        
+        for product in products:
+            p_id = str(product["_id"])
+            # Format date to YYYY-MM-DD (fallback to UTC now if missing)
+            lastmod = product.get("updated_at")
+            if lastmod:
+                lastmod_str = lastmod.strftime("%Y-%m-%d")
+            else:
+                from datetime import datetime
+                lastmod_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+            xml_content += f"  <url>\n    <loc>{base_url}/products/{p_id}</loc>\n    <lastmod>{lastmod_str}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>0.7</priority>\n  </url>\n"
+            
+        # Close XML
+        xml_content += '</urlset>'
+        
+        return Response(content=xml_content, media_type="application/xml")
 
     # --- Routers ---
     app.include_router(auth.router)
