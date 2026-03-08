@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     cf_r2_public_url: str
     cf_r2_bucket_name: str
 
+    # Resend API
+    resend_api_key: str
+
     # App
     app_name: str = "Shailoom E-commerce API"
     debug: bool = False

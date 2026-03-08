@@ -1,9 +1,12 @@
-from datetime import datetime
+import secrets
+from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, status
+import resend
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi import Depends
+from pydantic import BaseModel
 
+from app.core.config import settings
 from app.core.database import user_collection
 from app.core.security import (
     create_access_token,
@@ -95,3 +98,97 @@ async def login(form: OAuth2PasswordRequestForm = Depends()):
         "token_type": "bearer",
         "role": user["role"],
     }
+
+
+# ==========================================
+# FORGOT & RESET PASSWORD
+# ==========================================
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    token: str
+    new_password: str
+
+@router.post("/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    """
+    **[Public]** Generate a secure password reset token and send an email via Resend.
+    - Prevents email enumeration by standardizing the success response.
+    - Token expires in 1 hour.
+    """
+    user = await user_collection.find_one({"email": req.email})
+    
+    # Generic success message to prevent enumeration attacks
+    success_message = {"message": "If that email is registered, we have sent a password reset link."}
+    
+    if not user:
+        return success_message
+
+    # Generate cryptographically secure token
+    token = secrets.token_urlsafe(32)
+    expiry = datetime.utcnow() + timedelta(hours=1)
+
+    # Save token and expiry into the user's document
+    await user_collection.update_one(
+        {"email": req.email},
+        {"$set": {"reset_token": token, "reset_token_expiry": expiry}}
+    )
+
+    # Prepare reset link (ensure this matches your frontend domain eventually)
+    reset_link = f"https://shailoom.com/reset-password?token={token}&email={req.email}"
+
+    # Send Email via Resend
+    try:
+        resend.api_key = settings.resend_api_key
+        params: resend.Emails.SendParams = {
+            "from": "Shailoom Support <onboarding@resend.dev>",
+            "to": [req.email],
+            "subject": "Reset Your Shailoom Password",
+            "html": f"<p>Hello,</p><p>We received a request to reset your password. Click the link below to set a new password:</p><p><a href='{reset_link}'><strong>Reset Password</strong></a></p><p>This link will expire in 1 hour.</p>"
+        }
+        resend.Emails.send(params)
+    except Exception as e:
+        print(f"Failed to send reset email to {req.email}: {e}")
+        # Not failing the request if email fails to maintain security obscurity
+        pass
+
+    return success_message
+
+
+@router.post("/reset-password")
+async def reset_password(req: ResetPasswordRequest):
+    """
+    **[Public]** Reset a user's password using the token sent to their email.
+    - Deletes the token after successful use to prevent replay attacks.
+    """
+    user = await user_collection.find_one({"email": req.email})
+    
+    if not user or not user.get("reset_token") or user.get("reset_token") != req.token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token."
+        )
+
+    # Check expiration date
+    if datetime.utcnow() > user.get("reset_token_expiry", datetime.min):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reset token has expired."
+        )
+
+    # Hash the new password
+    hashed_password = get_password_hash(req.new_password)
+    
+    # Intelligently update the password and invalidate the tokens
+    await user_collection.update_one(
+        {"email": req.email},
+        {
+            "$set": {"password": hashed_password},
+            "$unset": {"reset_token": "", "reset_token_expiry": ""}
+        }
+    )
+
+    return {"message": "Password has been reset successfully. You can now log in."}
