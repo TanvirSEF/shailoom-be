@@ -2,14 +2,23 @@ import json
 from datetime import datetime
 from typing import List, Optional
 
-from bson import ObjectId
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+    Request, # Added Request
+)
 
-from app.core.database import order_collection, product_collection, review_collection
+from app.core.database import order_collection, product_collection, review_collection, redis_client # Added redis_client
 from app.core.s3 import upload_image_to_r2
 from app.core.security import get_current_admin, get_current_user
 from app.models.product import ProductModel
-from app.models.review import ReviewModel
+from app.models.review import ReviewModel # Kept ReviewModel
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
@@ -85,13 +94,34 @@ async def get_products(
 ):
     """
     **[Public]** Advanced product discovery with:
+    - **Caching**: Utlilizes Redis Cache to serve instantaneous results.
     - **Filtering**: `category`, `size`, `min_price`, `max_price`
     - **Search**: Case-insensitive text match on `name` and `description`
     - **Pagination**: `page` and `limit` (default: 12 per page)
 
     Only returns active products (`is_active: true`).
     """
-    # 1. Build dynamic MongoDB filter
+    # 0. Deterministic Cache Key Generation
+    cache_key_elements = [
+        f"cat:{category or ''}",
+        f"min:{min_price or ''}",
+        f"max:{max_price or ''}",
+        f"sz:{size or ''}",
+        f"q:{search or ''}",
+        f"p:{page}",
+        f"l:{limit}"
+    ]
+    cache_key = "products:" + "_".join(cache_key_elements)
+
+    # 1. Check Redis Cache
+    try:
+        cached_data = await redis_client.get(cache_key)
+        if cached_data:
+            return json.loads(cached_data)
+    except Exception as e:
+        print(f"Redis Cache Error (Reading): {e}")
+
+    # 2. Build dynamic MongoDB filter (Cache Miss)
     query: dict = {"is_active": True}
 
     if category:
@@ -114,9 +144,21 @@ async def get_products(
             {"description": {"$regex": search, "$options": "i"}},
         ]
 
-    # 2. Execute with pagination
+    # 3. Execute with pagination
     skip = (page - 1) * limit
-    products = await product_collection.find(query).skip(skip).limit(limit).to_list(limit)
+    products_cursor = await product_collection.find(query).skip(skip).limit(limit).to_list(limit)
+
+    # Serialize ObjectIds for JSON/Redis compatibility
+    products = []
+    for p in products_cursor:
+        p["_id"] = str(p["_id"])
+        products.append(p)
+
+    # 4. Save to Redis Cache (TTL = 5 mins = 300 seconds)
+    try:
+        await redis_client.setex(cache_key, 300, json.dumps(products, default=str))
+    except Exception as e:
+        print(f"Redis Cache Error (Writing): {e}")
 
     return products
 

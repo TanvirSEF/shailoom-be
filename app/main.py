@@ -1,9 +1,16 @@
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from app.core.config import settings
 from app.core.database import client
+from app.core.logger import app_logger
 from app.routers import admin, auth, orders, products, users
+
+# Define the Global Rate Limiter
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
 
 def create_app() -> FastAPI:
@@ -17,7 +24,10 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
 
-    # --- Middleware ---
+    # --- Middleware & State ---
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],  
@@ -31,7 +41,7 @@ def create_app() -> FastAPI:
     async def startup_db_client():
         try:
             await client.admin.command("ping")
-            print("Connected to MongoDB successfully!")
+            app_logger.info("Connected to MongoDB successfully!")
             
             # --- Auto-configure MongoDB Indexes ---
             from app.core.database import product_collection
@@ -48,15 +58,15 @@ def create_app() -> FastAPI:
                 [("name", pymongo.TEXT), ("description", pymongo.TEXT)],
                 name="name_description_text_idx"
             )
-            print("MongoDB Indexes verified/created successfully!")
+            app_logger.info("MongoDB Indexes verified/created successfully!")
             
         except Exception as e:
-            print(f"Failed to connect to MongoDB: {e}")
+            app_logger.error(f"Failed to connect to MongoDB: {e}")
 
     @app.on_event("shutdown")
     async def shutdown_db_client():
         client.close()
-        print("MongoDB connection closed.")
+        app_logger.info("MongoDB connection closed.")
 
     # --- Health Check ---
     @app.get("/", tags=["Health"])

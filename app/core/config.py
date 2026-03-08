@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # Resend API
     resend_api_key: str
 
+    # Redis Cache Engine
+    redis_url: str = "redis://default:shailoom2026@38.242.210.28:6380"
+
     # App
     app_name: str = "Shailoom E-commerce API"
     debug: bool = False
