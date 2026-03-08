@@ -1,63 +1,63 @@
 # Shailoom E-commerce Backend API
 
-A production-ready FastAPI backend for the Shailoom clothing brand, powered by MongoDB Atlas and Cloudflare R2.
+A production-ready FastAPI backend for the Shailoom clothing brand. Highly optimized for performance with Caching, DDoS protection, Image Optimization, and cloud storage via Cloudflare R2.
 
-## Tech Stack
+## Tech Stack & Core Features
 
-| Layer | Technology |
-|---|---|
-| Framework | FastAPI |
-| Database | MongoDB Atlas (Motor async driver) |
-| Auth | JWT (python-jose) + bcrypt (passlib) |
-| Storage | Cloudflare R2 (aiobotocore) |
-| Config | pydantic-settings |
+| Feature | Technology | Description |
+|---|---|---|
+| **Framework** | FastAPI | High performance async web framework |
+| **Database** | MongoDB Atlas | Motor async driver with automated indexing |
+| **Caching** | Redis (`redis.asyncio`) | 5-minute TTL caching for fast product discovery |
+| **Security & Auth** | JWT + bcrypt | Secure password hashing, Role-based ACL |
+| **Rate Limiting** | SlowAPI | Global 100 req/min limits for DDoS & Bot protection |
+| **Storage & Media** | Cloudflare R2 + Pillow | 5MB upload limit, on-the-fly WebP compression |
+| **Email Service** | Resend API | Secure, token-based "Forgot Password" flow |
+| **Config** | Pydantic Settings | Environment variable management |
+| **Logging** | Python Logging | Centralized `app.log` with auto-rotation (<5MB) |
 
-## Project Structure
+## Project Features
 
-```
-shailoom-be/
-├── app/
-│   ├── core/
-│   │   ├── config.py      # All settings from .env
-│   │   ├── database.py    # MongoDB client & collections
-│   │   ├── security.py    # JWT utils & auth dependencies
-│   │   └── s3.py          # Cloudflare R2 upload utility
-│   ├── models/
-│   │   ├── product.py
-│   │   ├── user.py
-│   │   └── order.py
-│   ├── routers/
-│   │   ├── auth.py        # /auth/signup, /auth/login
-│   │   ├── products.py    # /products
-│   │   ├── orders.py      # /orders
-│   │   └── admin.py       # /admin/*
-│   └── main.py            # App factory
-├── main.py                # Entrypoint
-├── .env                   # (not committed)
-└── requirements.txt
-```
+- **Storefront**: Advanced product filtering, text search, pagination.
+- **Cart & Orders**: Atomic stock decrement, secure checkout, order tracking.
+- **Coupons**: Percentage and fixed discount promo codes.
+- **User Activity**: Wishlists, product reviews, and ratings.
+- **Admin Dashboard**: Sales analytics, low-stock alerts, user management, order status updates.
+- **SEO**: Dynamic `sitemap.xml` generation.
+- **Deployment**: Configured for PaaS like Dokploy / Heroku (`nixpacks.toml`, `Procfile`).
 
 ## Getting Started
 
-### 1. Create & activate virtual environment
+### 1. Requirements
+- Python 3.12+
+- MongoDB instance (local or Atlas)
+- Redis server
+- Cloudflare R2 bucket
+- Resend API key
+
+### 2. Installation
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-```
-
-### 2. Install dependencies
-```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configure environment variables
+### 3. Environment Variables
 Create a `.env` file in the project root:
 ```env
+# Database & Cache
 MONGODB_URL=mongodb+srv://...
+REDIS_URL=redis://default:shailoom2026@38.242.210.28:6380
+
+# Security (Auth & Passwords)
 SECRET_KEY=your-secret-key
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 
+# Third-party Integrations
+RESEND_API_KEY=your_resend_api_key
+
+# Cloudflare R2 Storage
 CF_R2_ACCESS_KEY_ID=your_r2_key
 CF_R2_SECRET_ACCESS_KEY=your_r2_secret
 CF_R2_ENDPOINT_URL=https://<account_id>.r2.cloudflarestorage.com
@@ -65,54 +65,23 @@ CF_R2_PUBLIC_URL=https://pub-xxxx.r2.dev
 CF_R2_BUCKET_NAME=shailoom-media
 ```
 
-### 4. Run the development server
+### 4. Run the Development Server
 ```bash
 uvicorn main:app --reload
 ```
-
 Visit **http://127.0.0.1:8000/docs** for the interactive Swagger UI.
 
-## API Overview
+## API Overview (Key Endpoints)
 
-### Authentication
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `POST` | `/auth/signup` | Public | Register new user, returns JWT |
-| `POST` | `/auth/login` | Public | Login, returns JWT |
+- **Authentication**: `POST /auth/signup`, `POST /auth/login`, `POST /auth/forgot-password`, `POST /auth/reset-password`
+- **Products**: `GET /products` (Cached), `POST /products/{id}/reviews`
+- **Orders & Checkout**: `POST /orders`, `GET /orders/track/{id}`, `GET /orders/validate-coupon`
+- **User**: `GET /users/me`, `GET /users/me/wishlist`, `GET /orders/my-orders`
+- **Admin Analytics**: `GET /admin/analytics/sales`, `GET /admin/analytics/low-stock`
+- **Admin Management**: `POST /admin/coupons`, `PATCH /admin/users/{email}/role`
+- **SEO**: `GET /sitemap.xml`
 
-### Products
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `POST` | `/products` | Admin | Create product + upload images to R2 |
-| `GET` | `/products` | Public | List products (filter, search, paginate) |
+## Deployment
 
-**Query params for `GET /products`:** `category`, `size`, `min_price`, `max_price`, `search`, `page`, `limit`
-
-### Orders
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `POST` | `/orders` | User | Place order (atomic stock decrement) |
-| `GET` | `/orders/track/{id}` | Public | Track order by tracking ID |
-
-### Admin
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/admin/orders` | Admin | View all orders |
-| `PATCH` | `/admin/orders/{id}` | Admin | Update order/payment status |
-
-### Health
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/` | Public | Health check |
-
-## Recommended MongoDB Indexes
-
-Run in Atlas UI or Compass under the `products` collection:
-
-```json
-// Fast category + price filtering
-{ "category": 1, "price": 1 }
-
-// Text search on name and description
-{ "name": "text", "description": "text" }
-```
+This project includes `nixpacks.toml` and a `Procfile` for seamless deployment to platforms like **Dokploy**, **Railway**, or **Heroku**. 
+Ensure all environment variables from `.env` are configured in your hosting provider's dashboard.
