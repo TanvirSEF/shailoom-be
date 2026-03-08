@@ -1,9 +1,13 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 
-from app.core.database import coupon_collection, order_collection, product_collection, user_collection
+from app.core.database import audit_collection, coupon_collection, order_collection, product_collection, user_collection
+from app.core.audit import log_admin_action
+from app.core.email import send_order_status_update
+from app.core.logger import app_logger
 from app.core.security import get_current_admin
 from app.models.coupon import CouponModel
 
@@ -24,31 +28,56 @@ async def get_all_orders():
     return orders
 
 
-@router.patch("/orders/{tracking_id}", dependencies=[Depends(get_current_admin)])
+@router.patch("/orders/{tracking_id}")
 async def update_order_status(
     tracking_id: str,
     order_status: str,
+    background_tasks: BackgroundTasks,
     payment_status: Optional[str] = None,
+    admin_email: str = Depends(get_current_admin),
 ):
     """
     **[Admin Only]** Update the status of an order.
     - `order_status`: e.g. `pending`, `confirmed`, `shipped`, `delivered`, `cancelled`
     - `payment_status` *(optional)*: `unpaid` or `paid`
     """
+    # 1. Retrieve the existing order to compare statuses
+    existing_order = await order_collection.find_one({"tracking_id": tracking_id})
+    if not existing_order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Order not found"
+        )
+        
+    # 2. Setup the update payload
     update_data = {"status": order_status}
     if payment_status:
         update_data["payment_status"] = payment_status
 
-    result = await order_collection.update_one(
+    # 3. Inventory Recovery Logic (Only trigger if transitioning INTO 'cancelled')
+    if existing_order.get("status") != "cancelled" and order_status == "cancelled":
+        app_logger.info(f"Order {tracking_id} cancelled. Recovering inventory...")
+        for item in existing_order.get("items", []):
+            try:
+                p_id = ObjectId(item["product_id"])
+                await product_collection.update_one(
+                    {"_id": p_id},
+                    {"$inc": {"stock": item["quantity"]}}
+                )
+            except Exception as e:
+                app_logger.error(f"Failed to recover stock for {item.get('product_id')} on order {tracking_id}: {e}")
+
+    # 4. Finalize Status Update
+    await order_collection.update_one(
         {"tracking_id": tracking_id},
         {"$set": update_data},
     )
+    
+    # 5. Notify the customer
+    background_tasks.add_task(send_order_status_update, existing_order.get("user_email", ""), tracking_id, order_status)
 
-    if result.modified_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Order not found or no changes were made",
-        )
+    # 6. Audit Trail
+    background_tasks.add_task(log_admin_action, admin_email, "ORDER_UPDATE", "orders", tracking_id, {"new_status": order_status})
 
     return {"message": f"Order {tracking_id} updated to '{order_status}'"}
 
@@ -101,6 +130,70 @@ async def get_sales_analytics():
     }
 
 
+@router.get("/analytics/top-customers", dependencies=[Depends(get_current_admin)])
+async def get_top_customers():
+    """
+    **[Admin Only]** Retrieve the top 10 VIP customers based on total amount definitively spent.
+    """
+    pipeline = [
+        {"$match": {"status": {"$ne": "cancelled"}}},
+        {
+            "$group": {
+                "_id": "$user_email",
+                "total_spent": {"$sum": "$total_amount"},
+                "total_orders": {"$sum": 1}
+            }
+        },
+        {"$sort": {"total_spent": -1}},
+        {"$limit": 10},
+        {
+            "$project": {
+                "_id": 0,
+                "email": "$_id",
+                "total_spent": 1,
+                "total_orders": 1
+            }
+        }
+    ]
+    top_customers = await order_collection.aggregate(pipeline).to_list(10)
+    return top_customers
+
+
+@router.get("/analytics/revenue-chart", dependencies=[Depends(get_current_admin)])
+async def get_revenue_chart(days: int = Query(30, ge=7, le=365)):
+    """
+    **[Admin Only]** Generates timeseries revenue points for frontend charting libraries (like Recharts) over the last X days.
+    """
+    now = datetime.utcnow()
+    start_date = now - timedelta(days=days)
+    
+    pipeline = [
+        {"$match": {
+            "status": {"$ne": "cancelled"},
+            "created_at": {"$gte": start_date}
+        }},
+        {
+            "$group": {
+                "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
+                "revenue": {"$sum": "$total_amount"},
+                "orders": {"$sum": 1}
+            }
+        },
+        {"$sort": {"_id": 1}},
+        {
+            "$project": {
+                "_id": 0,
+                "date": "$_id",
+                "revenue": 1,
+                "orders": 1
+            }
+        }
+    ]
+    
+    chart_data = await order_collection.aggregate(pipeline).to_list(days)
+    return chart_data
+
+
 @router.get("/analytics/low-stock", dependencies=[Depends(get_current_admin)])
 async def get_low_stock_alerts(threshold: int = Query(10, ge=1)):
     """
@@ -119,6 +212,15 @@ async def get_low_stock_alerts(threshold: int = Query(10, ge=1)):
         "alert_count": len(low_stock_items),
         "items": low_stock_items
     }
+
+
+@router.get("/audit-logs", dependencies=[Depends(get_current_admin)])
+async def get_audit_logs(limit: int = 50):
+    """
+    **[Admin Only]** Retrieve internal admin action logs (e.g., role changes, order edits).
+    """
+    logs = await audit_collection.find({}, {"_id": 0}).sort("timestamp", -1).to_list(limit)
+    return logs
 
 
 # ==========================================
@@ -158,6 +260,8 @@ async def update_user_role(
     if result.matched_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    await log_admin_action(current_admin, "CHANGE_ROLE", "users", email, {"new_role": new_role})
+
     return {"message": f"User {email} is now a(n) {new_role}"}
 
 
@@ -194,8 +298,8 @@ async def get_all_coupons():
     return coupons
 
 
-@router.delete("/coupons/{code}", dependencies=[Depends(get_current_admin)])
-async def deactivate_coupon(code: str):
+@router.delete("/coupons/{code}")
+async def deactivate_coupon(code: str, admin_email: str = Depends(get_current_admin)):
     """
     **[Admin Only]** Deactivate a coupon (prevents it from being used).
     Does not delete the record to preserve order history integrity.
@@ -207,5 +311,7 @@ async def deactivate_coupon(code: str):
 
     if result.matched_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Coupon not found")
+
+    await log_admin_action(admin_email, "DEACTIVATE_COUPON", "coupons", code.upper())
 
     return {"message": f"Coupon {code.upper()} has been deactivated"}

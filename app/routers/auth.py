@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.database import user_collection
 from app.core.security import (
     create_access_token,
+    create_refresh_token,
     get_password_hash,
     verify_password,
 )
@@ -49,13 +50,14 @@ async def signup(user: UserSchema):
     await user_collection.insert_one(user_doc)
 
     # Generate and return a token so the user is logged in immediately
-    access_token = create_access_token(
-        data={"sub": user.email, "role": user.role}
-    )
+    token_payload = {"sub": user.email, "role": user.role}
+    access_token = create_access_token(data=token_payload)
+    refresh_token = create_refresh_token(data=token_payload)
 
     return {
         "message": "Account created successfully",
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
     }
 
@@ -88,16 +90,60 @@ async def login(form: OAuth2PasswordRequestForm = Depends()):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Create and return the JWT token
-    access_token = create_access_token(
-        data={"sub": user["email"], "role": user["role"]}
-    )
+    # Create and return the JWT tokens
+    token_payload = {"sub": user["email"], "role": user["role"]}
+    access_token = create_access_token(data=token_payload)
+    refresh_token = create_refresh_token(data=token_payload)
 
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "role": user["role"],
     }
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+@router.post("/refresh")
+async def refresh_access_token(req: RefreshRequest):
+    """
+    **[Public]** Exchange a valid `refresh_token` for a newly minted `access_token`.
+    Prevents the user from having to log in repeatedly when the short-lived access token expires.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired refresh token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    from jose import jwt, JWTError
+    try:
+        # Decode the token
+        payload = jwt.decode(req.refresh_token, settings.secret_key, algorithms=[settings.algorithm])
+        
+        # Verify it specifically has the "refresh" claim type
+        if payload.get("type") != "refresh":
+            raise credentials_exception
+            
+        email: str = payload.get("sub")
+        role: str = payload.get("role")
+        if email is None:
+            raise credentials_exception
+            
+        # Verify user still exists in DB
+        user = await user_collection.find_one({"email": email})
+        if not user:
+            raise credentials_exception
+            
+        # Issue fresh access token (without requiring password)
+        new_access_token = create_access_token(data={"sub": email, "role": role})
+        return {
+            "access_token": new_access_token,
+            "token_type": "bearer"
+        }
+    except JWTError:
+        raise credentials_exception
 
 
 # ==========================================

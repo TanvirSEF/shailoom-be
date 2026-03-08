@@ -12,10 +12,12 @@ from fastapi import (
     UploadFile,
     status,
     Request, # Added Request
+    BackgroundTasks
 )
 
+from bson import ObjectId
 from app.core.database import order_collection, product_collection, review_collection, redis_client # Added redis_client
-from app.core.s3 import upload_image_to_r2
+from app.core.s3 import upload_image_to_r2, delete_image_from_r2
 from app.core.security import get_current_admin, get_current_user
 from app.models.product import ProductModel
 from app.models.review import ReviewModel # Kept ReviewModel
@@ -82,6 +84,26 @@ async def create_product(
     }
 
 
+@router.get("/search/suggestions")
+async def get_search_suggestions(q: str = Query(..., min_length=2, max_length=50)):
+    """
+    **[Public]** Fast autocomplete suggestions for the storefront search bar.
+    Returns highly compact JSON (< 1KB) to ensure instant frontend rendering.
+    """
+    query = {
+        "is_active": True,
+        "name": {"$regex": q, "$options": "i"}
+    }
+    # Only fetch _id, name, price, and the VERY FIRST image in the array
+    cursor = product_collection.find(query, {"name": 1, "price": 1, "images": {"$slice": 1}}).limit(5)
+    suggestions = await cursor.to_list(length=5)
+    
+    for s in suggestions:
+        s["_id"] = str(s["_id"])
+        
+    return suggestions
+
+
 @router.get("")
 async def get_products(
     category: Optional[str] = None,
@@ -89,6 +111,7 @@ async def get_products(
     max_price: Optional[float] = None,
     size: Optional[str] = None,
     search: Optional[str] = None,
+    sort_by: Optional[str] = Query("newest", description="Valid options: newest, price_asc, price_desc, top_rated"),
     page: int = Query(1, ge=1),
     limit: int = Query(12, ge=1, le=50),  # Standard e-commerce grid size
 ):
@@ -108,6 +131,7 @@ async def get_products(
         f"max:{max_price or ''}",
         f"sz:{size or ''}",
         f"q:{search or ''}",
+        f"srt:{sort_by or ''}",
         f"p:{page}",
         f"l:{limit}"
     ]
@@ -144,9 +168,21 @@ async def get_products(
             {"description": {"$regex": search, "$options": "i"}},
         ]
 
-    # 3. Execute with pagination
+    # 3. Execute with pagination and sorting
     skip = (page - 1) * limit
-    products_cursor = await product_collection.find(query).skip(skip).limit(limit).to_list(limit)
+    cursor = product_collection.find(query)
+    
+    if sort_by == "price_asc":
+        cursor = cursor.sort("price", 1)
+    elif sort_by == "price_desc":
+        cursor = cursor.sort("price", -1)
+    elif sort_by == "top_rated":
+        cursor = cursor.sort("average_rating", -1)
+    else:
+        # Default 'newest'
+        cursor = cursor.sort("created_at", -1)
+
+    products_cursor = await cursor.skip(skip).limit(limit).to_list(limit)
 
     # Serialize ObjectIds for JSON/Redis compatibility
     products = []
@@ -161,6 +197,32 @@ async def get_products(
         print(f"Redis Cache Error (Writing): {e}")
 
     return products
+
+
+@router.delete("/{product_id}", dependencies=[Depends(get_current_admin)])
+async def delete_product(product_id: str, background_tasks: BackgroundTasks):
+    """
+    **[Admin Only]** Delete a product from the database AND wipe its images from Cloudflare R2 automatically to save on storage costs.
+    Utilizes BackgroundTasks so the database operation returns instantly.
+    """
+    try:
+        p_id = ObjectId(product_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid product ID")
+
+    product = await product_collection.find_one({"_id": p_id})
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+
+    # 1. Background task to delete all images from R2
+    images = product.get("images", [])
+    for img_url in images:
+        background_tasks.add_task(delete_image_from_r2, img_url)
+
+    # 2. Delete the product from MongoDB
+    await product_collection.delete_one({"_id": p_id})
+
+    return {"message": "Product and associated cloud media deleted successfully"}
 
 
 # ==========================================

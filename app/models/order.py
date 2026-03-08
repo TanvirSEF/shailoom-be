@@ -20,9 +20,14 @@ class OrderCreate(BaseModel):
     items: List[OrderItem]
     total_amount: float
     shipping_address: str
+    shipping_zone: str = Field(..., example="Inside Dhaka | Outside Dhaka")
     phone_number: str
     payment_method: str = Field(default="COD", example="COD or Online")
     coupon_code: Optional[str] = Field(None, description="Optional applied promo code")
+    
+    # Internal calculated fields (client shouldn't send these, we compute them)
+    shipping_fee: float = Field(default=0.0, ge=0.0)
+    tax_amount: float = Field(default=0.0, ge=0.0)
     discount_amount: float = Field(default=0.0, ge=0.0, description="Calculated discount amount")
 
 

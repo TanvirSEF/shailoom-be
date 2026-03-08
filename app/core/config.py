@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     secret_key: str
     algorithm: str
     access_token_expire_minutes: int
+    refresh_token_expire_days: int = 7
 
     # Cloudflare R2 Storage
     cf_r2_access_key_id: str

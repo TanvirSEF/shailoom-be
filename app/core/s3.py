@@ -74,3 +74,34 @@ async def upload_image_to_r2(
         )
 
     return f"{settings.cf_r2_public_url}/{unique_key}"
+
+
+async def delete_image_from_r2(public_url: str):
+    """
+    Extracts the R2 object key from the public URL and permanently deletes it from the Storage bucket.
+    """
+    if not public_url:
+        return
+        
+    prefix = f"{settings.cf_r2_public_url}/"
+    if not public_url.startswith(prefix):
+        return
+        
+    unique_key = public_url[len(prefix):]
+    
+    try:
+        session = get_session()
+        async with session.create_client(
+            "s3",
+            endpoint_url=settings.cf_r2_endpoint_url,
+            aws_access_key_id=settings.cf_r2_access_key_id,
+            aws_secret_access_key=settings.cf_r2_secret_access_key,
+            region_name="auto", 
+        ) as client:
+            await client.delete_object(
+                Bucket=settings.cf_r2_bucket_name,
+                Key=unique_key
+            )
+    except Exception as e:
+        from app.core.logger import app_logger
+        app_logger.error(f"Failed to delete image {unique_key} from R2: {e}")

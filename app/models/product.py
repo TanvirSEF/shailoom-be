@@ -11,6 +11,10 @@ class ProductModel(BaseModel):
     price: float = Field(..., gt=0, example=2500.0)
     category: str = Field(..., example="Men's Wear")
 
+    # Shipping Fees
+    shipping_fee_inside_dhaka: float = Field(default=70.0, ge=0.0, description="Delivery charge inside Dhaka")
+    shipping_fee_outside_dhaka: float = Field(default=130.0, ge=0.0, description="Delivery charge outside Dhaka")
+
     # Clothing Specifics
     sizes: List[str] = Field(default=["S", "M", "L", "XL"])
     colors: List[str] = Field(default=["Blue", "Black"])
