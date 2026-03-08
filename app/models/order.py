@@ -22,6 +22,8 @@ class OrderCreate(BaseModel):
     shipping_address: str
     phone_number: str
     payment_method: str = Field(default="COD", example="COD or Online")
+    coupon_code: Optional[str] = Field(None, description="Optional applied promo code")
+    discount_amount: float = Field(default=0.0, ge=0.0, description="Calculated discount amount")
 
 
 class OrderResponse(OrderCreate):

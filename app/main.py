@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import client
-from app.routers import admin, auth, orders, products
+from app.routers import admin, auth, orders, products, users
 
 
 def create_app() -> FastAPI:
@@ -32,6 +32,24 @@ def create_app() -> FastAPI:
         try:
             await client.admin.command("ping")
             print("Connected to MongoDB successfully!")
+            
+            # --- Auto-configure MongoDB Indexes ---
+            from app.core.database import product_collection
+            import pymongo
+            
+            # 1. Compound Index for fast category and price sorting/filtering
+            await product_collection.create_index(
+                [("category", pymongo.ASCENDING), ("price", pymongo.ASCENDING)],
+                name="category_price_idx"
+            )
+            
+            # 2. Text Index for cross-field keyword search
+            await product_collection.create_index(
+                [("name", pymongo.TEXT), ("description", pymongo.TEXT)],
+                name="name_description_text_idx"
+            )
+            print("MongoDB Indexes verified/created successfully!")
+            
         except Exception as e:
             print(f"Failed to connect to MongoDB: {e}")
 
@@ -48,6 +66,7 @@ def create_app() -> FastAPI:
 
     # --- Routers ---
     app.include_router(auth.router)
+    app.include_router(users.router)
     app.include_router(products.router)
     app.include_router(orders.router)
     app.include_router(admin.router)

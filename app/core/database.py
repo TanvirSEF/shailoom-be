@@ -16,3 +16,5 @@ database = client.shailoom
 product_collection = database.get_collection("products")
 user_collection = database.get_collection("users")
 order_collection = database.get_collection("orders")
+review_collection = database.get_collection("reviews")
+coupon_collection = database.get_collection("coupons")

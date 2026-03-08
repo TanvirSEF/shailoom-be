@@ -2,12 +2,14 @@ import json
 from datetime import datetime
 from typing import List, Optional
 
+from bson import ObjectId
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
-from app.core.database import product_collection
+from app.core.database import order_collection, product_collection, review_collection
 from app.core.s3 import upload_image_to_r2
-from app.core.security import get_current_admin
+from app.core.security import get_current_admin, get_current_user
 from app.models.product import ProductModel
+from app.models.review import ReviewModel
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
@@ -117,3 +119,85 @@ async def get_products(
     products = await product_collection.find(query).skip(skip).limit(limit).to_list(limit)
 
     return products
+
+
+# ==========================================
+# REVIEWS & RATINGS
+# ==========================================
+
+@router.post("/{product_id}/reviews", status_code=status.HTTP_201_CREATED)
+async def submit_review(
+    product_id: str,
+    rating: int = Form(..., ge=1, le=5),
+    comment: str = Form(..., min_length=1, max_length=1000),
+    image_file: Optional[UploadFile] = File(None),
+    current_user_email: str = Depends(get_current_user),
+):
+    """
+    **[Authenticated]** Submit a review for a purchased and delivered product.
+    - Validates that the customer bought the item and received it before allowing a review.
+    - Updates the overall `average_rating` and `review_count` for the product.
+    """
+    try:
+        p_id = ObjectId(product_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid product ID format")
+
+    # 1. Check if the product exists
+    product = await product_collection.find_one({"_id": p_id, "is_active": True})
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+
+    # 2. Check if the user has a "delivered" order containing this product
+    order = await order_collection.find_one({
+        "user_email": current_user_email,
+        "status": "delivered",
+        "items.product_id": product_id
+    })
+
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only review products that you have successfully purchased and received."
+        )
+
+    # 3. Handle optional image upload
+    image_url = None
+    if image_file:
+        content = await image_file.read()
+        image_url = await upload_image_to_r2(content, image_file.filename, image_file.content_type)
+
+    # 4. Save the review
+    review_doc = {
+        "product_id": product_id,
+        "user_email": current_user_email,
+        "rating": rating,
+        "comment": comment,
+        "image_url": image_url,
+        "created_at": datetime.utcnow()
+    }
+    await review_collection.insert_one(review_doc)
+
+    # 5. Update the product's average rating dynamically
+    old_count = product.get("review_count", 0)
+    old_average = product.get("average_rating", 0.0)
+
+    new_count = old_count + 1
+    new_average = ((old_average * old_count) + rating) / new_count
+
+    await product_collection.update_one(
+        {"_id": p_id},
+        {"$set": {"review_count": new_count, "average_rating": round(new_average, 1)}}
+    )
+
+    return {"message": "Review submitted successfully!"}
+
+
+@router.get("/{product_id}/reviews")
+async def get_product_reviews(product_id: str, skip: int = 0, limit: int = 20):
+    """
+    **[Public]** View all reviews for a specific product.
+    Sorted chronologically from newest to oldest.
+    """
+    reviews = await review_collection.find({"product_id": product_id}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    return reviews

@@ -19,7 +19,9 @@ class ProductModel(BaseModel):
     stock: int = Field(default=0, ge=0)
     images: List[str] = Field(default=[], description="List of image URLs")
 
-    # Metadata
+    # Ratings & Metadata
+    average_rating: float = Field(default=0.0, ge=0.0, le=5.0)
+    review_count: int = Field(default=0, ge=0)
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
