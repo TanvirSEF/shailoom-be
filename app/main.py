@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import client
-from app.routers import admin, orders, products
+from app.routers import admin, auth, orders, products
 
 
 def create_app() -> FastAPI:
@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
         return {"message": f"{settings.app_name} is operational", "status": "online"}
 
     # --- Routers ---
+    app.include_router(auth.router)
     app.include_router(products.router)
     app.include_router(orders.router)
     app.include_router(admin.router)
