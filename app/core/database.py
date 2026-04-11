@@ -8,7 +8,7 @@ MONGODB_URL = settings.mongodb_url
 client = motor.motor_asyncio.AsyncIOMotorClient(
     MONGODB_URL,
     tls=True,
-    tlsCAFile="/etc/ssl/certs/ca-certificates.crt"  # Trust system root certificates
+    tlsCAFile=certifi.where() 
 )
 db = client.get_database("shailoom_db")
 
