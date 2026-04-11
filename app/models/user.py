@@ -10,7 +10,7 @@ class UserSchema(BaseModel):
     email: str = Field(..., example="user@shailoom.com")
     password: str = Field(..., min_length=6)
     role: str = Field(default="customer", description="'customer' or 'admin'")
-    phone_number: Optional[str] = Field(None, example="+8801700000000")
+    phone_number: str = Field(..., example="+8801700000000")
     address: Optional[str] = Field(None, example="123 Main St, Dhaka, Bangladesh")
     wishlist: List[str] = Field(default=[], description="List of saved product ObjectIds")
     created_at: datetime = Field(default_factory=datetime.utcnow)

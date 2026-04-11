@@ -43,6 +43,8 @@ async def signup(user: UserSchema):
         "username": user.username,
         "email": user.email,
         "password": hashed_password,
+        "phone_number": user.phone_number,
+        "address": user.address,
         "role": user.role,
         "created_at": datetime.utcnow(),
     }
