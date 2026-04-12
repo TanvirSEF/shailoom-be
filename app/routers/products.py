@@ -77,6 +77,13 @@ async def create_product(
     # 4. Save to MongoDB
     result = await product_collection.insert_one(product_doc)
 
+    # 5. Invalidate all product Redis caches
+    try:
+        async for key in redis_client.scan_iter("products:*"):
+            await redis_client.delete(key)
+    except Exception as e:
+        print(f"Redis Cache Error (Invalidating): {e}")
+
     return {
         "message": "Product created successfully",
         "product_id": str(result.inserted_id),
@@ -187,7 +194,7 @@ async def get_products(
     # Serialize ObjectIds for JSON/Redis compatibility
     products = []
     for p in products_cursor:
-        p["_id"] = str(p["_id"])
+        p["id"] = str(p.pop("_id"))
         products.append(p)
 
     # 4. Save to Redis Cache (TTL = 5 mins = 300 seconds)
@@ -221,6 +228,13 @@ async def delete_product(product_id: str, background_tasks: BackgroundTasks):
 
     # 2. Delete the product from MongoDB
     await product_collection.delete_one({"_id": p_id})
+
+    # 3. Invalidate all product Redis caches
+    try:
+        async for key in redis_client.scan_iter("products:*"):
+            await redis_client.delete(key)
+    except Exception as e:
+        print(f"Redis Cache Error (Invalidating): {e}")
 
     return {"message": "Product and associated cloud media deleted successfully"}
 
