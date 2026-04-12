@@ -205,13 +205,16 @@ async def get_low_stock_alerts(threshold: int = Query(10, ge=1)):
         {"name": 1, "stock": 1, "category": 1, "price": 1} # Only return essential fields
     ).to_list(100)
     
+    formatted_alerts = []
     for item in low_stock_items:
-        item["_id"] = str(item["_id"])
+        formatted_alerts.append({
+            "product_id": str(item["_id"]),
+            "product_name": item["name"],
+            "current_stock": item["stock"],
+            "threshold": threshold
+        })
         
-    return {
-        "alert_count": len(low_stock_items),
-        "items": low_stock_items
-    }
+    return formatted_alerts
 
 
 @router.get("/audit-logs", dependencies=[Depends(get_current_admin)])
