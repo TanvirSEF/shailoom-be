@@ -16,11 +16,11 @@ from fastapi import (
 )
 
 from bson import ObjectId
-from app.core.database import order_collection, product_collection, review_collection, redis_client # Added redis_client
+from app.core.database import order_collection, product_collection, review_collection
 from app.core.s3 import upload_image_to_r2, delete_image_from_r2
 from app.core.security import get_current_admin, get_current_user
 from app.models.product import ProductModel
-from app.models.review import ReviewModel # Kept ReviewModel
+from app.models.review import ReviewModel
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
@@ -77,13 +77,6 @@ async def create_product(
     # 4. Save to MongoDB
     result = await product_collection.insert_one(product_doc)
 
-    # 5. Invalidate all product Redis caches
-    try:
-        async for key in redis_client.scan_iter("products:*"):
-            await redis_client.delete(key)
-    except Exception as e:
-        print(f"Redis Cache Error (Invalidating): {e}")
-
     return {
         "message": "Product created successfully",
         "product_id": str(result.inserted_id),
@@ -131,28 +124,7 @@ async def get_products(
 
     Only returns active products (`is_active: true`).
     """
-    # 0. Deterministic Cache Key Generation
-    cache_key_elements = [
-        f"cat:{category or ''}",
-        f"min:{min_price or ''}",
-        f"max:{max_price or ''}",
-        f"sz:{size or ''}",
-        f"q:{search or ''}",
-        f"srt:{sort_by or ''}",
-        f"p:{page}",
-        f"l:{limit}"
-    ]
-    cache_key = "products:" + "_".join(cache_key_elements)
-
-    # 1. Check Redis Cache
-    try:
-        cached_data = await redis_client.get(cache_key)
-        if cached_data:
-            return json.loads(cached_data)
-    except Exception as e:
-        print(f"Redis Cache Error (Reading): {e}")
-
-    # 2. Build dynamic MongoDB filter (Cache Miss)
+    # 1. Build dynamic MongoDB filter
     query: dict = {"is_active": True}
 
     if category:
@@ -175,7 +147,7 @@ async def get_products(
             {"description": {"$regex": search, "$options": "i"}},
         ]
 
-    # 3. Execute with pagination and sorting
+    # 2. Execute with pagination and sorting
     skip = (page - 1) * limit
     cursor = product_collection.find(query)
     
@@ -191,19 +163,31 @@ async def get_products(
 
     products_cursor = await cursor.skip(skip).limit(limit).to_list(limit)
 
-    # Serialize ObjectIds for JSON/Redis compatibility
+    # Serialize ObjectIds for JSON compatibility
     products = []
     for p in products_cursor:
         p["id"] = str(p.pop("_id"))
         products.append(p)
 
-    # 4. Save to Redis Cache (TTL = 5 mins = 300 seconds)
-    try:
-        await redis_client.setex(cache_key, 300, json.dumps(products, default=str))
-    except Exception as e:
-        print(f"Redis Cache Error (Writing): {e}")
-
     return products
+
+
+@router.get("/{product_id}")
+async def get_single_product(product_id: str):
+    """
+    **[Public]** Retrieve full details for a single product.
+    """
+    try:
+        p_id = ObjectId(product_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid product ID format")
+
+    product = await product_collection.find_one({"_id": p_id, "is_active": True})
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+
+    product["id"] = str(product.pop("_id"))
+    return product
 
 
 @router.delete("/{product_id}", dependencies=[Depends(get_current_admin)])
@@ -228,13 +212,6 @@ async def delete_product(product_id: str, background_tasks: BackgroundTasks):
 
     # 2. Delete the product from MongoDB
     await product_collection.delete_one({"_id": p_id})
-
-    # 3. Invalidate all product Redis caches
-    try:
-        async for key in redis_client.scan_iter("products:*"):
-            await redis_client.delete(key)
-    except Exception as e:
-        print(f"Redis Cache Error (Invalidating): {e}")
 
     return {"message": "Product and associated cloud media deleted successfully"}
 
