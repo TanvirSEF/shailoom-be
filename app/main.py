@@ -30,8 +30,8 @@ def create_app() -> FastAPI:
     
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  
-        allow_credentials=True,
+        allow_origins=["*"],
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -67,6 +67,17 @@ def create_app() -> FastAPI:
     async def shutdown_db_client():
         client.close()
         app_logger.info("MongoDB connection closed.")
+
+    # --- Global Exception Handler (ensures CORS headers are present on 500s) ---
+    from fastapi.responses import JSONResponse
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        app_logger.error(f"Unhandled exception: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "An internal server error occurred."},
+        )
 
     # --- Health Check ---
     @app.get("/", tags=["Health"])

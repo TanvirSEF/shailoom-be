@@ -58,19 +58,25 @@ async def upload_image_to_r2(
     # 3. Generate a WebP unique key
     unique_key = f"products/{uuid.uuid4()}.webp"
 
-    session = get_session()
-    async with session.create_client(
-        "s3",
-        endpoint_url=settings.cf_r2_endpoint_url,
-        aws_access_key_id=settings.cf_r2_access_key_id,
-        aws_secret_access_key=settings.cf_r2_secret_access_key,
-        region_name="auto",  # R2 uses 'auto' as region
-    ) as client:
-        await client.put_object(
-            Bucket=settings.cf_r2_bucket_name,
-            Key=unique_key,
-            Body=optimized_content,
-            ContentType="image/webp",
+    try:
+        session = get_session()
+        async with session.create_client(
+            "s3",
+            endpoint_url=settings.cf_r2_endpoint_url,
+            aws_access_key_id=settings.cf_r2_access_key_id,
+            aws_secret_access_key=settings.cf_r2_secret_access_key,
+            region_name="auto",  # R2 uses 'auto' as region
+        ) as client:
+            await client.put_object(
+                Bucket=settings.cf_r2_bucket_name,
+                Key=unique_key,
+                Body=optimized_content,
+                ContentType="image/webp",
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Cloud storage upload failed: {str(e)}",
         )
 
     return f"{settings.cf_r2_public_url}/{unique_key}"
