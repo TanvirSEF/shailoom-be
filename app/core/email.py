@@ -5,9 +5,8 @@ from app.core.logger import app_logger
 # Initialize Resend SDK
 resend.api_key = settings.resend_api_key
 
-# --- Configurable Defaults ---
-# This is the sender email. Typically, you need to verify a domain in Resend to use an email other than 'onboarding@resend.dev'
-SENDER_EMAIL = "onboarding@resend.dev"
+# Default sender email from configuration
+SENDER_EMAIL = settings.sender_email
 
 
 def send_order_confirmation(user_email: str, order_details: dict):

@@ -192,7 +192,7 @@ async def forgot_password(req: ForgotPasswordRequest):
     try:
         resend.api_key = settings.resend_api_key
         params: resend.Emails.SendParams = {
-            "from": "Shailoom Support <onboarding@resend.dev>",
+            "from": settings.sender_email,
             "to": [req.email],
             "subject": "Reset Your Shailoom Password",
             "html": f"<p>Hello,</p><p>We received a request to reset your password. Click the link below to set a new password:</p><p><a href='{reset_link}'><strong>Reset Password</strong></a></p><p>This link will expire in 1 hour.</p>"

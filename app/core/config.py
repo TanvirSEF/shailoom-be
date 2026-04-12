@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     # Resend API
     resend_api_key: str
+    sender_email: str = "Shailoom <onboarding@resend.dev>"
     admin_email: str = "shailoombangladesh@gmail.com"
 
     # Redis Cache Engine
