@@ -348,3 +348,18 @@ async def activate_coupon(code: str, admin_email: str = Depends(get_current_admi
     await log_admin_action(admin_email, "ACTIVATE_COUPON", "coupons", code.upper())
 
     return {"message": f"Coupon {code.upper()} has been reactivated"}
+
+
+@router.delete("/coupons/{code}/delete")
+async def delete_coupon(code: str, admin_email: str = Depends(get_current_admin)):
+    """
+    **[Admin Only]** Permanently delete a coupon from the database.
+    """
+    result = await coupon_collection.delete_one({"code": code.upper()})
+
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Coupon not found")
+
+    await log_admin_action(admin_email, "DELETE_COUPON", "coupons", code.upper())
+
+    return {"message": f"Coupon {code.upper()} has been permanently deleted"}
