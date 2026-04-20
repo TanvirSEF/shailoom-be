@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     sender_email: str = "Shailoom <onboarding@resend.dev>"
     admin_email: str = "shailoombangladesh@gmail.com"
 
+    # Steadfast Courier API
+    steadfast_api_key: str
+    steadfast_secret_key: str
+    steadfast_base_url: str = "https://portal.packzy.com/api/v1"
+
     # App
     app_name: str = "Shailoom E-commerce API"
     debug: bool = False

@@ -7,7 +7,7 @@ from slowapi.util import get_remote_address
 from app.core.config import settings
 from app.core.database import client
 from app.core.logger import app_logger
-from app.routers import admin, auth, orders, products, users
+from app.routers import admin, auth, orders, products, steadfast, users
 
 # Define the Global Rate Limiter
 limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
@@ -65,6 +65,8 @@ def create_app() -> FastAPI:
 
     @app.on_event("shutdown")
     async def shutdown_db_client():
+        from app.core.steadfast import close_client as close_steadfast
+        await close_steadfast()
         client.close()
         app_logger.info("MongoDB connection closed.")
 
@@ -135,6 +137,7 @@ def create_app() -> FastAPI:
     app.include_router(products.router)
     app.include_router(orders.router)
     app.include_router(admin.router)
+    app.include_router(steadfast.router)
 
     return app
 
