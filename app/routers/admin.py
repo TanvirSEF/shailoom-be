@@ -295,9 +295,21 @@ async def get_all_coupons():
     """
     **[Admin Only]** View all promotional coupons.
     """
-    coupons = await coupon_collection.find().sort("created_at", -1).to_list(100)
+    coupons = await coupon_collection.find().sort("start_date", -1).to_list(100)
+    now = datetime.utcnow()
     for c in coupons:
         c["_id"] = str(c["_id"])
+        # Compute effective status from is_active flag, dates, and usage
+        if not c.get("is_active", True):
+            c["status"] = "inactive"
+        elif c.get("end_date") and c["end_date"] < now:
+            c["status"] = "expired"
+        elif c.get("usage_limit", 0) > 0 and c.get("used_count", 0) >= c["usage_limit"]:
+            c["status"] = "used_up"
+        elif c.get("start_date") and c["start_date"] > now:
+            c["status"] = "scheduled"
+        else:
+            c["status"] = "active"
     return coupons
 
 
@@ -318,3 +330,21 @@ async def deactivate_coupon(code: str, admin_email: str = Depends(get_current_ad
     await log_admin_action(admin_email, "DEACTIVATE_COUPON", "coupons", code.upper())
 
     return {"message": f"Coupon {code.upper()} has been deactivated"}
+
+
+@router.patch("/coupons/{code}/activate")
+async def activate_coupon(code: str, admin_email: str = Depends(get_current_admin)):
+    """
+    **[Admin Only]** Reactivate a deactivated coupon.
+    """
+    result = await coupon_collection.update_one(
+        {"code": code.upper()},
+        {"$set": {"is_active": True}}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Coupon not found")
+
+    await log_admin_action(admin_email, "ACTIVATE_COUPON", "coupons", code.upper())
+
+    return {"message": f"Coupon {code.upper()} has been reactivated"}
