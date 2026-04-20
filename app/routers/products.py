@@ -170,7 +170,7 @@ async def get_products(
         products.append(p)
 
     return products
-
+ 
 
 @router.get("/{product_id}")
 async def get_single_product(product_id: str):
