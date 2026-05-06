@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from typing import List, Optional
 
@@ -30,7 +31,9 @@ async def create_product(
     name: str = Form(...),
     description: str = Form(...),
     price: float = Form(...),
+    original_price: Optional[float] = Form(None),
     category: str = Form(...),
+    fabric: Optional[str] = Form(None),
     stock: int = Form(...),
     sizes: str = Form(..., examples=['["S", "M", "L", "XL"]']),
     colors: str = Form(..., examples=['["Red", "Blue"]']),
@@ -65,7 +68,9 @@ async def create_product(
         "name": name,
         "description": description,
         "price": price,
+        "original_price": original_price,
         "category": category,
+        "fabric": fabric,
         "stock": stock,
         "sizes": sizes_list,
         "colors": colors_list,
@@ -110,16 +115,18 @@ async def get_products(
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
     size: Optional[str] = None,
+    color: Optional[str] = None,
+    fabric: Optional[str] = None,
     search: Optional[str] = None,
     sort_by: Optional[str] = Query("newest", description="Valid options: newest, price_asc, price_desc, top_rated"),
     page: int = Query(1, ge=1),
-    limit: int = Query(12, ge=1, le=50),  # Standard e-commerce grid size
+    limit: int = Query(12, ge=1, le=50),
 ):
     """
     **[Public]** Advanced product discovery with:
-    - **Caching**: Utlilizes Redis Cache to serve instantaneous results.
-    - **Filtering**: `category`, `size`, `min_price`, `max_price`
+    - **Filtering**: `category`, `size`, `color`, `fabric`, `min_price`, `max_price`
     - **Search**: Case-insensitive text match on `name` and `description`
+    - **Sorting**: `newest`, `price_asc`, `price_desc`, `top_rated`
     - **Pagination**: `page` and `limit` (default: 12 per page)
 
     Only returns active products (`is_active: true`).
@@ -131,7 +138,17 @@ async def get_products(
         query["category"] = category
 
     if size:
-        query["sizes"] = size  # Matches if value exists in the array
+        query["sizes"] = size
+
+    if color:
+        query["colors"] = color
+
+    if fabric:
+        fabric_list = [f.strip() for f in fabric.split(",")]
+        if len(fabric_list) == 1:
+            query["fabric"] = {"$regex": re.compile(f"^{re.escape(fabric_list[0])}$", re.IGNORECASE)}
+        else:
+            query["fabric"] = {"$in": [re.compile(f"^{re.escape(f)}$", re.IGNORECASE) for f in fabric_list]}
 
     if min_price is not None or max_price is not None:
         query["price"] = {}
@@ -169,7 +186,19 @@ async def get_products(
         p["id"] = str(p.pop("_id"))
         products.append(p)
 
-    return products
+    # Pagination metadata
+    total_count = await product_collection.count_documents(query)
+    total_pages = (total_count + limit - 1) // limit
+
+    return {
+        "products": products,
+        "pagination": {
+            "total": total_count,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages,
+        },
+    }
  
 
 @router.get("/{product_id}")

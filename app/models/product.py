@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -9,7 +9,9 @@ class ProductModel(BaseModel):
     name: str = Field(..., example="Vintage Denim Jacket")
     description: str = Field(..., example="A premium quality denim jacket for men.")
     price: float = Field(..., gt=0, example=2500.0)
+    original_price: Optional[float] = Field(default=None, gt=0, example=4200.0, description="Original price before discount")
     category: str = Field(..., example="Men's Wear")
+    fabric: Optional[str] = Field(default=None, example="Pure Cotton")
 
     # Shipping Fees
     shipping_fee_inside_dhaka: float = Field(default=70.0, ge=0.0, description="Delivery charge inside Dhaka")
