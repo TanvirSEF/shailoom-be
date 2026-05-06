@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.database import product_collection, user_collection
 from app.core.security import get_current_user
-from app.models.user import UserUpdate
+from app.models.user import AddressSchema, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -51,6 +51,116 @@ async def update_my_profile(
         return {"message": "Profile data is already up to date"}
 
     return {"message": "Profile updated successfully"}
+
+
+# ==========================================
+# ADDRESS BOOK
+# ==========================================
+
+@router.get("/me/addresses")
+async def get_addresses(current_user_email: str = Depends(get_current_user)):
+    """**[Authenticated]** Get all saved addresses for the current user."""
+    user = await user_collection.find_one({"email": current_user_email}, {"addresses": 1})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return user.get("addresses", [])
+
+
+@router.post("/me/addresses", status_code=status.HTTP_201_CREATED)
+async def add_address(
+    address: AddressSchema,
+    current_user_email: str = Depends(get_current_user),
+):
+    """**[Authenticated]** Add a new saved address (max 5 per user)."""
+    user = await user_collection.find_one({"email": current_user_email}, {"addresses": 1})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    current_addresses = user.get("addresses", [])
+    if len(current_addresses) >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Maximum 5 addresses allowed. Delete one to add a new address."
+        )
+
+    # If this is the first address or marked as default, clear others' default
+    if address.is_default or len(current_addresses) == 0:
+        await user_collection.update_one(
+            {"email": current_user_email},
+            {"$set": {"addresses.$[].is_default": False}}
+        )
+        address.is_default = True
+
+    await user_collection.update_one(
+        {"email": current_user_email},
+        {"$push": {"addresses": address.dict()}}
+    )
+
+    return {"message": "Address added successfully", "address_id": address.id}
+
+
+@router.patch("/me/addresses/{address_id}")
+async def set_default_address(
+    address_id: str,
+    current_user_email: str = Depends(get_current_user),
+):
+    """**[Authenticated]** Set an address as the default."""
+    user = await user_collection.find_one({"email": current_user_email}, {"addresses": 1})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    addresses = user.get("addresses", [])
+    found = any(a.get("id") == address_id for a in addresses)
+    if not found:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Address not found")
+
+    # Clear all defaults, then set the target
+    await user_collection.update_one(
+        {"email": current_user_email},
+        {"$set": {"addresses.$[].is_default": False}}
+    )
+    await user_collection.update_one(
+        {"email": current_user_email, "addresses.id": address_id},
+        {"$set": {"addresses.$.is_default": True}}
+    )
+
+    return {"message": "Default address updated"}
+
+
+@router.delete("/me/addresses/{address_id}")
+async def delete_address(
+    address_id: str,
+    current_user_email: str = Depends(get_current_user),
+):
+    """**[Authenticated]** Delete a saved address."""
+    user = await user_collection.find_one({"email": current_user_email}, {"addresses": 1})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    addresses = user.get("addresses", [])
+    target = next((a for a in addresses if a.get("id") == address_id), None)
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Address not found")
+
+    was_default = target.get("is_default", False)
+
+    # Pull the address
+    await user_collection.update_one(
+        {"email": current_user_email},
+        {"$pull": {"addresses": {"id": address_id}}}
+    )
+
+    # If deleted was default, set first remaining as default
+    if was_default:
+        remaining = [a for a in addresses if a.get("id") != address_id]
+        if remaining:
+            first_id = remaining[0].get("id")
+            await user_collection.update_one(
+                {"email": current_user_email, "addresses.id": first_id},
+                {"$set": {"addresses.$.is_default": True}}
+            )
+
+    return {"message": "Address deleted successfully"}
 
 
 # ==========================================
