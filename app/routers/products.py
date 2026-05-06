@@ -34,6 +34,7 @@ async def create_product(
     original_price: Optional[float] = Form(None),
     category: str = Form(...),
     fabric: Optional[str] = Form(None),
+    is_new_arrival: bool = Form(True),
     stock: int = Form(...),
     sizes: str = Form(..., examples=['["S", "M", "L", "XL"]']),
     colors: str = Form(..., examples=['["Red", "Blue"]']),
@@ -71,6 +72,7 @@ async def create_product(
         "original_price": original_price,
         "category": category,
         "fabric": fabric,
+        "is_new_arrival": is_new_arrival,
         "stock": stock,
         "sizes": sizes_list,
         "colors": colors_list,
@@ -117,6 +119,7 @@ async def get_products(
     size: Optional[str] = None,
     color: Optional[str] = None,
     fabric: Optional[str] = None,
+    is_new_arrival: Optional[bool] = None,
     search: Optional[str] = None,
     sort_by: Optional[str] = Query("newest", description="Valid options: newest, price_asc, price_desc, top_rated"),
     page: int = Query(1, ge=1),
@@ -142,6 +145,9 @@ async def get_products(
 
     if color:
         query["colors"] = color
+
+    if is_new_arrival is not None:
+        query["is_new_arrival"] = is_new_arrival
 
     if fabric:
         fabric_list = [f.strip() for f in fabric.split(",")]
