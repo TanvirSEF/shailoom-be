@@ -225,6 +225,117 @@ async def get_single_product(product_id: str):
     return product
 
 
+@router.patch("/{product_id}", dependencies=[Depends(get_current_admin)])
+async def update_product(
+    product_id: str,
+    background_tasks: BackgroundTasks,
+    name: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    price: Optional[float] = Form(None),
+    original_price: Optional[float] = Form(None),
+    category: Optional[str] = Form(None),
+    fabric: Optional[str] = Form(None),
+    is_new_arrival: Optional[bool] = Form(None),
+    stock: Optional[int] = Form(None),
+    sizes: Optional[str] = Form(None),
+    colors: Optional[str] = Form(None),
+    existing_images: Optional[str] = Form(None),
+    image_files: Optional[List[UploadFile]] = File(None),
+):
+    """
+    **[Admin Only]** Update a product. Supports partial updates — only sent fields are changed.
+
+    - `existing_images`: JSON array of image URLs to keep (from the original set).
+    - `image_files`: New images to upload. Combined with `existing_images` to form the final set.
+    - Images not in `existing_images` are deleted from R2 in the background.
+    """
+    try:
+        p_id = ObjectId(product_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid product ID format")
+
+    product = await product_collection.find_one({"_id": p_id})
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+
+    # Build $set dict with only provided fields
+    update_fields: dict = {}
+    if name is not None:
+        update_fields["name"] = name
+    if description is not None:
+        update_fields["description"] = description
+    if price is not None:
+        update_fields["price"] = price
+    if original_price is not None:
+        update_fields["original_price"] = original_price
+    if category is not None:
+        update_fields["category"] = category
+    if fabric is not None:
+        update_fields["fabric"] = fabric
+    if is_new_arrival is not None:
+        update_fields["is_new_arrival"] = is_new_arrival
+    if stock is not None:
+        update_fields["stock"] = stock
+
+    # Parse sizes/colors if provided
+    if sizes is not None:
+        try:
+            update_fields["sizes"] = json.loads(sizes)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="`sizes` must be a valid JSON array e.g. [\"S\", \"M\"]",
+            )
+
+    if colors is not None:
+        try:
+            update_fields["colors"] = json.loads(colors)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="`colors` must be a valid JSON array e.g. [\"Red\", \"Blue\"]",
+            )
+
+    # Handle image updates
+    kept_urls = []
+    if existing_images is not None:
+        try:
+            kept_urls = json.loads(existing_images)
+        except json.JSONDecodeError:
+            kept_urls = []
+
+    # Upload new images
+    new_urls = []
+    if image_files:
+        for file in image_files:
+            content = await file.read()
+            url = await upload_image_to_r2(content, file.filename)
+            new_urls.append(url)
+
+    final_images = kept_urls + new_urls
+    if final_images:
+        update_fields["images"] = final_images
+
+    # Delete removed images from R2
+    old_images = product.get("images", [])
+    removed_images = [img for img in old_images if img not in kept_urls]
+    for img_url in removed_images:
+        background_tasks.add_task(delete_image_from_r2, img_url)
+
+    # Apply update
+    if update_fields:
+        await product_collection.update_one(
+            {"_id": p_id},
+            {"$set": update_fields}
+        )
+
+    # Return updated product
+    updated = await product_collection.find_one({"_id": p_id})
+    if updated:
+        updated["id"] = str(updated.pop("_id"))
+    return updated
+
+
 @router.delete("/{product_id}", dependencies=[Depends(get_current_admin)])
 async def delete_product(product_id: str, background_tasks: BackgroundTasks):
     """
