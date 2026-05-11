@@ -20,6 +20,7 @@ from bson import ObjectId
 from app.core.database import order_collection, product_collection, review_collection
 from app.core.s3 import upload_image_to_r2, delete_image_from_r2
 from app.core.security import get_current_admin, get_current_user
+from app.core.sanitize import sanitize_string
 from app.models.product import ProductModel
 from app.models.review import ReviewModel
 
@@ -67,12 +68,12 @@ async def create_product(
 
     # 3. Build product document
     product_doc = {
-        "name": name,
-        "description": description,
+        "name": sanitize_string(name),
+        "description": sanitize_string(description),
         "price": price,
         "original_price": original_price,
-        "category": category,
-        "fabric": fabric,
+        "category": sanitize_string(category),
+        "fabric": sanitize_string(fabric) if fabric else None,
         "is_new_arrival": is_new_arrival,
         "is_on_sale": is_on_sale,
         "stock": stock,
@@ -268,17 +269,17 @@ async def update_product(
     # Build $set dict with only provided fields
     update_fields: dict = {}
     if name is not None:
-        update_fields["name"] = name
+        update_fields["name"] = sanitize_string(name)
     if description is not None:
-        update_fields["description"] = description
+        update_fields["description"] = sanitize_string(description)
     if price is not None:
         update_fields["price"] = price
     if original_price is not None:
         update_fields["original_price"] = original_price
     if category is not None:
-        update_fields["category"] = category
+        update_fields["category"] = sanitize_string(category)
     if fabric is not None:
-        update_fields["fabric"] = fabric
+        update_fields["fabric"] = sanitize_string(fabric)
     if is_new_arrival is not None:
         update_fields["is_new_arrival"] = is_new_arrival
     if is_on_sale is not None:

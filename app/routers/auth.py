@@ -14,6 +14,7 @@ from app.core.security import (
     get_password_hash,
     verify_password,
 )
+from app.core.sanitize import sanitize_string
 from app.models.user import UserSchema
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -40,11 +41,11 @@ async def signup(user: UserSchema):
     hashed_password = get_password_hash(user.password)
 
     user_doc = {
-        "username": user.username,
+        "username": sanitize_string(user.username),
         "email": user.email,
         "password": hashed_password,
         "phone_number": user.phone_number,
-        "address": user.address,
+        "address": sanitize_string(user.address) if user.address else "",
         "role": user.role,
         "created_at": datetime.utcnow(),
     }
@@ -185,8 +186,8 @@ async def forgot_password(req: ForgotPasswordRequest):
         {"$set": {"reset_token": token, "reset_token_expiry": expiry}}
     )
 
-    # Prepare reset link (ensure this matches your frontend domain eventually)
-    reset_link = f"https://shailoom.com/reset-password?token={token}&email={req.email}"
+    # Prepare reset link
+    reset_link = f"{settings.frontend_url}/reset-password?token={token}&email={req.email}"
 
     # Send Email via Resend
     try:

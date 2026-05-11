@@ -32,10 +32,10 @@ def create_app() -> FastAPI:
     
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=settings.allowed_origins.split(","),
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
     )
 
     # --- Database Lifecycle Events ---
@@ -104,7 +104,9 @@ def create_app() -> FastAPI:
             content={"detail": "An internal server error occurred."},
         )
         # Ensure CORS headers are present even on 500 errors
-        response.headers["Access-Control-Allow-Origin"] = "*"
+        request_origin = request.headers.get("origin", "")
+        if request_origin in settings.allowed_origins.split(","):
+            response.headers["Access-Control-Allow-Origin"] = request_origin
         return response
 
     # --- Health Check ---
