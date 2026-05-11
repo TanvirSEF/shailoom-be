@@ -7,8 +7,8 @@ from PIL import Image
 
 from app.core.config import settings
 
-# 5MB Limit
-MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024
+# 10MB Limit
+MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
 
 
 async def upload_image_to_r2(
