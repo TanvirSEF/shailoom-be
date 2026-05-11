@@ -45,7 +45,6 @@ async def signup(user: UserSchema):
         "email": user.email,
         "password": hashed_password,
         "phone_number": user.phone_number,
-        "address": sanitize_string(user.address) if user.address else "",
         "role": user.role,
         "created_at": datetime.utcnow(),
     }
