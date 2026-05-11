@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # App
     app_name: str = "Shailoom E-commerce API"
     debug: bool = False
-    allowed_origins: str = "https://shailoom.com,http://localhost:3000"
+    allowed_origins: str = "https://shailoom.com,https://www.shailoom.com,http://localhost:3000"
     frontend_url: str = "https://shailoom.com"
 
     model_config = SettingsConfigDict(
