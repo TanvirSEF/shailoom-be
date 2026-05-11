@@ -35,6 +35,7 @@ async def create_product(
     category: str = Form(...),
     fabric: Optional[str] = Form(None),
     is_new_arrival: bool = Form(True),
+    is_on_sale: bool = Form(False),
     stock: int = Form(...),
     sizes: str = Form(..., examples=['["S", "M", "L", "XL"]']),
     colors: str = Form(..., examples=['["Red", "Blue"]']),
@@ -73,6 +74,7 @@ async def create_product(
         "category": category,
         "fabric": fabric,
         "is_new_arrival": is_new_arrival,
+        "is_on_sale": is_on_sale,
         "stock": stock,
         "sizes": sizes_list,
         "colors": colors_list,
@@ -120,6 +122,7 @@ async def get_products(
     color: Optional[str] = None,
     fabric: Optional[str] = None,
     is_new_arrival: Optional[bool] = None,
+    is_on_sale: Optional[bool] = None,
     search: Optional[str] = None,
     sort_by: Optional[str] = Query("newest", description="Valid options: newest, price_asc, price_desc, top_rated"),
     page: int = Query(1, ge=1),
@@ -148,6 +151,9 @@ async def get_products(
 
     if is_new_arrival is not None:
         query["is_new_arrival"] = is_new_arrival
+
+    if is_on_sale is not None:
+        query["is_on_sale"] = is_on_sale
 
     if fabric:
         fabric_list = [f.strip() for f in fabric.split(",")]
@@ -236,6 +242,7 @@ async def update_product(
     category: Optional[str] = Form(None),
     fabric: Optional[str] = Form(None),
     is_new_arrival: Optional[bool] = Form(None),
+    is_on_sale: Optional[bool] = Form(None),
     stock: Optional[int] = Form(None),
     sizes: Optional[str] = Form(None),
     colors: Optional[str] = Form(None),
@@ -274,6 +281,8 @@ async def update_product(
         update_fields["fabric"] = fabric
     if is_new_arrival is not None:
         update_fields["is_new_arrival"] = is_new_arrival
+    if is_on_sale is not None:
+        update_fields["is_on_sale"] = is_on_sale
     if stock is not None:
         update_fields["stock"] = stock
 

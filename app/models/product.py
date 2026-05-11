@@ -30,6 +30,7 @@ class ProductModel(BaseModel):
     review_count: int = Field(default=0, ge=0)
     is_active: bool = Field(default=True)
     is_new_arrival: bool = Field(default=True, description="Mark product as new arrival")
+    is_on_sale: bool = Field(default=False, description="Mark product as on sale")
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
