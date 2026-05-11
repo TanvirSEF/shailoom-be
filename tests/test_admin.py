@@ -74,3 +74,30 @@ class TestSteadfast:
         assert response.status_code == 200
         data = response.json()
         assert "current_balance" in data
+
+
+class TestDatabaseMaintenance:
+    def test_db_stats(self, base_url, admin_headers):
+        """Admin should get DB stats."""
+        response = httpx.get(f"{base_url}/admin/db/stats", headers=admin_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "database" in data
+        assert "collections" in data
+
+    def test_db_indexes(self, base_url, admin_headers):
+        """Admin should get index listing."""
+        response = httpx.get(f"{base_url}/admin/db/indexes", headers=admin_headers)
+        assert response.status_code == 200
+
+    def test_db_health(self, base_url, admin_headers):
+        """Admin should get DB health check."""
+        response = httpx.get(f"{base_url}/admin/db/health", headers=admin_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data
+
+    def test_db_stats_without_auth(self, base_url):
+        """Unauthenticated request should fail."""
+        response = httpx.get(f"{base_url}/admin/db/stats")
+        assert response.status_code == 401

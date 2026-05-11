@@ -5,9 +5,11 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from app.core.config import settings
-from app.core.database import client
+from app.core.database import client, db
 from app.core.logger import app_logger
+from app.core.db_schema import COLLECTION_VALIDATORS, INDEX_DEFINITIONS
 from app.routers import admin, auth, orders, products, steadfast, users
+from app.core.db_maintenance import router as db_maintenance_router
 
 # Define the Global Rate Limiter
 limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
@@ -42,24 +44,45 @@ def create_app() -> FastAPI:
         try:
             await client.admin.command("ping")
             app_logger.info("Connected to MongoDB successfully!")
-            
-            # --- Auto-configure MongoDB Indexes ---
-            from app.core.database import product_collection
-            import pymongo
-            
-            # 1. Compound Index for fast category and price sorting/filtering
-            await product_collection.create_index(
-                [("category", pymongo.ASCENDING), ("price", pymongo.ASCENDING)],
-                name="category_price_idx"
-            )
-            
-            # 2. Text Index for cross-field keyword search
-            await product_collection.create_index(
-                [("name", pymongo.TEXT), ("description", pymongo.TEXT)],
-                name="name_description_text_idx"
-            )
-            app_logger.info("MongoDB Indexes verified/created successfully!")
-            
+
+            # --- Apply Schema Validation ---
+            for collection_name, validator in COLLECTION_VALIDATORS.items():
+                try:
+                    await db.command({
+                        "collMod": collection_name,
+                        "validator": validator,
+                        "validationLevel": "moderate",
+                        "validationAction": "warn",
+                    })
+                    app_logger.info(f"Schema validation applied: {collection_name}")
+                except Exception as e:
+                    error_msg = str(e)
+                    if "namespace does not exist" in error_msg.lower():
+                        await db.create_collection(
+                            collection_name,
+                            validator=validator,
+                            validationLevel="moderate",
+                            validationAction="warn",
+                        )
+                        app_logger.info(f"Collection created with validation: {collection_name}")
+                    else:
+                        app_logger.warning(f"Schema validation skipped for {collection_name}: {e}")
+
+            # --- Create Indexes ---
+            for collection_name, index_spec, unique, index_name in INDEX_DEFINITIONS:
+                try:
+                    collection = db.get_collection(collection_name)
+                    await collection.create_index(
+                        index_spec,
+                        unique=unique,
+                        name=index_name,
+                        background=True,
+                    )
+                except Exception as e:
+                    app_logger.warning(f"Index {index_name} skipped: {e}")
+
+            app_logger.info("MongoDB schema validation & indexes verified!")
+
         except Exception as e:
             app_logger.error(f"Failed to connect to MongoDB: {e}")
 
@@ -138,6 +161,7 @@ def create_app() -> FastAPI:
     app.include_router(orders.router)
     app.include_router(admin.router)
     app.include_router(steadfast.router)
+    app.include_router(db_maintenance_router)
 
     return app
 
