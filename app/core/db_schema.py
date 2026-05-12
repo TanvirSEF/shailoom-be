@@ -119,8 +119,15 @@ ORDERS_VALIDATOR = {
                 "enum": ["unpaid", "paid"],
             },
             "tracking_id": {"bsonType": "string"},
-            "steadfast_consignment_id": {"bsonType": "string"},
-            "steadfast_status": {"bsonType": "string"},
+            "steadfast": {
+                "bsonType": "object",
+                "properties": {
+                    "consignment_id": {"bsonType": "string"},
+                    "tracking_code": {"bsonType": "string"},
+                    "status": {"bsonType": "string"},
+                    "created_at": {"bsonType": "date"},
+                }
+            },
             "created_at": {"bsonType": "date"},
         },
     }

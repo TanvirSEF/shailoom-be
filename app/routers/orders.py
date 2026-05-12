@@ -28,10 +28,9 @@ async def place_order(
     # Step 1: Initialize server-side price calculations
     calculated_subtotal = 0.0
     max_shipping_fee = 0.0
-    TAX_RATE = 0.05  # 5% VAT
-    
+
     zone_upper = order_data.shipping_zone.upper()
-    is_inside_dhaka = "INSIDE" in zone_upper
+    is_inside_dhaka = "DHAKA" in zone_upper
 
     # Step 2: Check and atomically update stock for each item
     for item in order_data.items:
@@ -97,22 +96,18 @@ async def place_order(
     
     # 4b. Calculate Subtotal after Discount
     discounted_subtotal = max(0.0, calculated_subtotal - discount_amount)
-    
-    # 4c. Calculate Tax (VAT) on discounted goods
-    tax_amount = discounted_subtotal * TAX_RATE
-    
-    # 4d. Final Compute
-    final_total = discounted_subtotal + tax_amount + shipping_fee
+
+    # 4c. Final Compute
+    final_total = discounted_subtotal + shipping_fee
     
     tracking_id = f"SHL-{uuid.uuid4().hex[:8].upper()}"
 
     new_order = {
-        **order_data.dict(exclude={"total_amount", "shipping_fee", "tax_amount", "discount_amount"}), 
+        **order_data.dict(exclude={"total_amount", "shipping_fee", "discount_amount"}),
         "user_email": current_user,
         "calculated_subtotal": calculated_subtotal,
         "discount_amount": discount_amount,
         "shipping_fee": shipping_fee,
-        "tax_amount": tax_amount,
         "total_amount": final_total, 
         "status": "pending",
         "payment_status": "unpaid",
@@ -132,7 +127,6 @@ async def place_order(
         "subtotal": calculated_subtotal,
         "discount": discount_amount,
         "shipping_fee": shipping_fee,
-        "tax_amount": tax_amount,
         "total_charged": final_total
     }
 

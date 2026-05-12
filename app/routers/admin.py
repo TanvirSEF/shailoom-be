@@ -31,9 +31,9 @@ async def get_all_orders():
 @router.patch("/orders/{tracking_id}")
 async def update_order_status(
     tracking_id: str,
-    order_status: str,
     background_tasks: BackgroundTasks,
-    payment_status: Optional[str] = None,
+    order_status: str = Query(...),
+    payment_status: Optional[str] = Query(None),
     admin_email: str = Depends(get_current_admin),
 ):
     """
