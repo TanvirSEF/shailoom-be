@@ -32,6 +32,7 @@ class UserUpdate(BaseModel):
     """Schema for updating an existing user's profile."""
     username: Optional[str] = Field(None, min_length=3, max_length=50)
     phone_number: Optional[str] = Field(None, example="+8801700000000")
+    address: Optional[str] = Field(None, min_length=3)
 
 
 class UserLogin(BaseModel):
