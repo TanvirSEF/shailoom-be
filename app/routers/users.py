@@ -85,10 +85,11 @@ async def add_address(
 
     # If this is the first address or marked as default, clear others' default
     if address.is_default or len(current_addresses) == 0:
-        await user_collection.update_one(
-            {"email": current_user_email},
-            {"$set": {"addresses.$[].is_default": False}}
-        )
+        if current_addresses:
+            await user_collection.update_one(
+                {"email": current_user_email},
+                {"$set": {"addresses.$[].is_default": False}}
+            )
         address.is_default = True
 
     await user_collection.update_one(
