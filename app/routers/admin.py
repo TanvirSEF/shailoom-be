@@ -67,6 +67,19 @@ async def update_order_status(
             except Exception as e:
                 app_logger.error(f"Failed to recover stock for {item.get('product_id')} on order {tracking_id}: {e}")
 
+        # Auto-create Steadfast return request if order was shipped via Steadfast
+        sf = existing_order.get("steadfast")
+        if sf and sf.get("consignment_id"):
+            try:
+                from app.core import steadfast
+                result = await steadfast.create_return_request(
+                    sf["consignment_id"],
+                    reason=f"Order {tracking_id} cancelled by admin"
+                )
+                app_logger.info(f"Steadfast return request created for consignment {sf['consignment_id']}: {result}")
+            except Exception as e:
+                app_logger.error(f"Failed to create Steadfast return request for {tracking_id}: {e}")
+
     # 4. Finalize Status Update
     await order_collection.update_one(
         {"tracking_id": tracking_id},

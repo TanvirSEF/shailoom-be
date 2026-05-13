@@ -113,3 +113,14 @@ async def get_balance() -> dict:
     response = await client.get("/get_balance")
     response.raise_for_status()
     return response.json()
+
+
+async def create_return_request(consignment_id: int | str, reason: str = "") -> dict:
+    """Create a return request on Steadfast for a consignment."""
+    client = await _get_client()
+    payload: dict = {"consignment_id": int(consignment_id)}
+    if reason:
+        payload["reason"] = reason
+    response = await client.post("/create_return_request", json=payload)
+    response.raise_for_status()
+    return response.json()
