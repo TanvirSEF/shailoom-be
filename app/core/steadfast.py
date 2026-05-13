@@ -28,15 +28,51 @@ async def close_client():
         _client = None
 
 
+def _normalize_phone(phone: str) -> str:
+    """Normalize a BD phone number to exactly 11 digits (e.g. '01712345678')."""
+    digits = "".join(c for c in phone if c.isdigit())
+    if digits.startswith("880"):
+        digits = "0" + digits[3:]
+    elif digits.startswith("88"):
+        digits = "0" + digits[2:]
+    if not digits.startswith("0"):
+        digits = "0" + digits
+    return digits[:11]
+
+
+def _build_item_description(order: dict) -> str:
+    """Build a short item summary for Steadfast, e.g. '3x Cotton Saree, 1x Scarf'."""
+    items = order.get("items") or []
+    parts = []
+    for item in items[:5]:
+        qty = item.get("quantity", 1)
+        name = item.get("name", "Item")
+        if len(name) > 30:
+            name = name[:28] + ".."
+        parts.append(f"{qty}x {name}")
+    desc = ", ".join(parts)
+    if len(items) > 5:
+        desc += f" +{len(items) - 5} more"
+    return desc[:250]
+
+
 async def create_consignment(order: dict, recipient_name: str) -> dict:
     client = await _get_client()
+
+    phone = _normalize_phone(order.get("phone_number", ""))
+
     payload = {
         "invoice": order["tracking_id"],
-        "recipient_name": recipient_name,
-        "recipient_phone": order["phone_number"],
-        "recipient_address": order["shipping_address"],
+        "recipient_name": recipient_name[:100],
+        "recipient_phone": phone,
+        "recipient_address": order["shipping_address"][:250],
         "cod_amount": order["total_amount"],
+        "recipient_email": order.get("user_email", ""),
+        "item_description": _build_item_description(order),
+        "note": f"Shipping zone: {order.get('shipping_zone', 'N/A')}",
+        "total_lot": sum(item.get("quantity", 1) for item in order.get("items", [])),
     }
+
     try:
         response = await client.post("/create_order", json=payload)
         response.raise_for_status()
