@@ -4,6 +4,8 @@ from typing import Optional
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 
+from pydantic import BaseModel, Field
+
 from app.core.database import audit_collection, coupon_collection, order_collection, product_collection, user_collection
 from app.core.audit import log_admin_action
 from app.core.email import send_order_status_update
@@ -253,15 +255,32 @@ async def get_all_users():
     return users
 
 
+class RoleUpdatePayload(BaseModel):
+    role: Optional[str] = None
+    new_role: Optional[str] = None
+
+
 @router.patch("/users/{email}/role")
 async def update_user_role(
     email: str,
-    new_role: str = Query(..., pattern="^(customer|admin)$"),
+    payload: Optional[RoleUpdatePayload] = None,
+    new_role: Optional[str] = Query(None, pattern="^(customer|admin)$"),
     current_admin: str = Depends(get_current_admin)
 ):
     """
     **[Admin Only]** Promote a customer to 'admin' or demote to 'customer'.
+    Supports JSON body payload (e.g. `{"role": "customer"}`) or `new_role` query parameter.
     """
+    target_role = new_role
+    if payload and (payload.role or payload.new_role):
+        target_role = payload.role or payload.new_role
+
+    if not target_role or target_role not in ("customer", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Role must be either 'customer' or 'admin'"
+        )
+
     if email == current_admin:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -270,15 +289,15 @@ async def update_user_role(
 
     result = await user_collection.update_one(
         {"email": email},
-        {"$set": {"role": new_role}}
+        {"$set": {"role": target_role}}
     )
 
     if result.matched_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    await log_admin_action(current_admin, "CHANGE_ROLE", "users", email, {"new_role": new_role})
+    await log_admin_action(current_admin, "CHANGE_ROLE", "users", email, {"new_role": target_role})
 
-    return {"message": f"User {email} is now a(n) {new_role}"}
+    return {"message": f"User {email} is now a(n) {target_role}"}
 
 
 # ==========================================

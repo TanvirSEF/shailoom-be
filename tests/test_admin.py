@@ -44,6 +44,24 @@ class TestAdminUsers:
         response = httpx.get(f"{base_url}/admin/users")
         assert response.status_code == 401
 
+    def test_update_user_role_invalid_role(self, base_url, admin_headers):
+        """Should reject invalid role like 'user' or 'invalid'."""
+        response = httpx.patch(
+            f"{base_url}/admin/users/nonexistent@example.com/role",
+            json={"role": "user"},
+            headers=admin_headers
+        )
+        assert response.status_code == 422
+
+    def test_update_user_role_not_found(self, base_url, admin_headers):
+        """Should return 404 if user email does not exist."""
+        response = httpx.patch(
+            f"{base_url}/admin/users/nonexistent_test_email_999@example.com/role?new_role=customer",
+            json={"role": "customer"},
+            headers=admin_headers
+        )
+        assert response.status_code == 404
+
 
 class TestAdminOrders:
     def test_get_all_orders(self, base_url, admin_headers):
